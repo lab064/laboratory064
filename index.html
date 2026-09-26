@@ -214,9 +214,17 @@ button{touch-action:manipulation}
 <div class="form-actions"><button id="saveBtn">Сохранить</button><button id="cancelBtn" class="btn-secondary">Отмена</button></div>
 </div>
 </div>
-
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 "use strict";
+const SUPABASE_URL =
+  "https://lab064.supabase.co";
+const SUPABASE_KEY =
+  "sb_publishable_FUVmWmCFvrBQRW_Euhk47g_sj3f9HYl";
+const db = window.supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_KEY
+);
 const ADMIN_KEY="admin555";
 const STORAGE_KEY="chemical_reagents_v3";
 const DEFAULT=[
