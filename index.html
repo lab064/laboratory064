@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
 <meta name="theme-color" content="#243447">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -129,6 +130,7 @@ label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bot
 button,input,select{min-height:40px}
 button{touch-action:manipulation}
 
+[hidden]{display:none!important}.auth{flex-wrap:wrap;max-width:540px}.auth form{display:flex;flex-wrap:wrap;gap:8px;width:100%}.auth input{min-width:120px;max-width:100%;font-size:16px}.auth label{color:white;width:100%}.auth span{overflow-wrap:anywhere}button:disabled{opacity:.55;cursor:wait}
 </style>
 </head>
 <body>
@@ -146,13 +148,14 @@ button{touch-action:manipulation}
       <div class="brand-kicker">Лаборатория 064</div>
       <h1>Химические реактивы</h1>
       <div class="brand-sub">Учет, поиск, расположение и контроль сроков годности</div>
-      <div class="hero-chip">● Локальная лабораторная база</div>
+      <div class="hero-chip">● Общая база лаборатории</div>
     </div>
   </div>
   <div class="auth" id="authPanel"></div>
 </header>
 
-<div id="guestNotice" class="notice"><strong>Режим просмотра.</strong> Вы можете искать и просматривать реактивы. Для изменения базы войдите как администратор.</div>
+<div id="guestNotice" class="notice" role="status" aria-live="polite">Проверяем сеанс…</div>
+<div id="inventory" hidden>
 
 <div class="stats">
   <div class="stat"><b id="statTotal">0</b><span>Всего позиций</span></div>
@@ -195,10 +198,10 @@ button{touch-action:manipulation}
 <div class="section-title"><div><h2>Сводка по расположениям</h2><div class="hint">Количество позиций в каждом месте хранения</div></div></div>
 <div id="summary" class="summary"></div>
 </section>
-<div class="footer"><div class="quick-note" style="justify-content:center"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3v18M3 12h18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg> Сейчас это локальная версия сайта. Подключение к общей базе на рабочем сервере можно добавить позже.</div></div>
+</div><div class="footer"><div class="quick-note" style="justify-content:center"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3v18M3 12h18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg> Общая база лаборатории. Доступ после входа, в соответствии с назначенной ролью.</div></div>
 </div>
 
-<div class="modal" id="modal">
+<div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
 <div class="modal-box">
 <div class="modal-head"><h2 id="modalTitle">Новый реактив</h2><button class="close" id="closeModal">Закрыть</button></div>
 <div class="form-grid">
@@ -216,66 +219,119 @@ button{touch-action:manipulation}
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+
 "use strict";
-const SUPABASE_URL =
-  "https://spiyxmnpnubhrqyfdvsh.supabase.co";
-const SUPABASE_KEY =
-  "sb_publishable_23wKsAdVxbC2XN2AoluytA_v27RQWYM";
-const db = window.supabase.createClient(
-  SUPABASE_URL,
-  SUPABASE_KEY);
-  
-async function testConnection() {
-    const { data, error } = await db
-        .from("lab064_reagents")
-        .select("id, name")
-        .limit(1);
-    if (error) {
-        console.error("Ошибка Supabase:", error);
-    } else {
-        console.log("Соединение с Supabase работает:", data);
-    }
+const SUPABASE_URL="https://spiyxmnpnubhrqyfdvsh.supabase.co";
+const SUPABASE_KEY="sb_publishable_23wKsAdVxbC2XN2AoluytA_v27RQWYM";
+const $=id=>document.getElementById(id);
+const fields={Name:"name",Formula:"formula",Qty:"quantity",Loc:"location",Purity:"purity",Expiry:"expiry",Received:"received",Note:"note"};
+let db=null,data=[],editingId=null,currentAdmin=false,user=null,role=null,busy=false,ready=false,page=1,epoch=0,recovery=false,authBusy=false,authSerial=0;
+let columnMap=null;
+const aliases={name:['name'],formula:['formula'],quantity:['quantity','qty'],location:['location','storage_location'],purity:['purity'],expiry:['expiry','expiry_date','expiration_date'],received:['received','received_date','date_received','dateReceived'],note:['note','notes']};
+async function detectColumns(ticket){
+ const mapping={};
+ for(const [key,candidates] of Object.entries(aliases)){
+  for(const col of candidates){
+   if(ticket!==epoch)throw Error('SESSION_CHANGED');
+   const {error}=await db.from('lab064_reagents').select(col).limit(0);
+   if(!error){mapping[key]=col;break;}
+   if(!['42703','PGRST204'].includes(error.code))throw error;
+  }
+  if(!mapping[key])throw Error('Не найдено поле '+key+'. Нужна проверка схемы таблицы.');
+ }
+ return mapping;
 }
-testConnection();
-const ADMIN_KEY="admin555";
-const STORAGE_KEY="chemical_reagents_v3";
-const DEFAULT=[
-{id:1,name:"Кислота серная 98%",formula:"H2SO4",quantity:"1.5 л",location:"Шкаф №1, Сейф А",purity:"98%",expiry:"",received:"",note:""},
-{id:2,name:"Натрия гидроксид",formula:"NaOH",quantity:"800 г",location:"Шкаф №2, Полка 3",purity:"",expiry:"",received:"",note:""},
-{id:3,name:"Этанол 96%",formula:"C2H5OH",quantity:"5 л",location:"Шкаф №1, Сейф А",purity:"96%",expiry:"",received:"",note:""},
-{id:4,name:"Калий марганцовокислый",formula:"KMnO4",quantity:"150 г",location:"Стеллаж Б, Полка 1",purity:"",expiry:"",received:"",note:""},
-{id:5,name:"Медь (II) сульфат 5-водный",formula:"CuSO4·5H2O",quantity:"1 кг",location:"Шкаф №2, Полка 3",purity:"",expiry:"",received:"",note:""}
-];
-let data=loadData(),editingId=null,currentAdmin=sessionStorage.getItem("adminAuthenticated")==="1";
-function normalize(r,i){return {id:Number(r.id)||Date.now()+i,name:String(r.name||"").trim(),formula:String(r.formula||"").trim(),quantity:String(r.quantity||"").trim(),location:String(r.location||"").trim(),purity:String(r.purity||"").trim(),expiry:String(r.expiry||"").trim(),received:String(r.received||r.dateReceived||"").trim(),note:String(r.note||r.notes||"").trim()};}
-function loadData(){
- try{const x=localStorage.getItem(STORAGE_KEY);if(x){const a=JSON.parse(x);if(Array.isArray(a))return a.map(normalize)}}catch(e){console.warn(e)}
- // Миграция со старой версии: нужные поля сохраняются, удалённые поля не переносятся.
- try{const old=localStorage.getItem("chemical_reagents_v2")||localStorage.getItem("reagents");if(old){const a=JSON.parse(old);if(Array.isArray(a))return a.map(normalize)}}catch(e){console.warn(e)}
- return DEFAULT.map(normalize);
-}
-function save(){localStorage.setItem(STORAGE_KEY,JSON.stringify(data));renderAll();}
+function toDatabase(record){return Object.fromEntries(Object.entries(record).map(([k,v])=>[columnMap[k],v]));}
+function canonical(row){const result={id:String(row.id),_original:row};for(const [k,c] of Object.entries(columnMap))result[k]=row[c]==null?'':String(row[c]);return result;}
+function withOriginal(query,record){for(const col of Object.values(columnMap)){const v=record._original[col];query=v==null?query.is(col,null):query.eq(col,v);}return query;}
+function fingerprint(r){return JSON.stringify(Object.values(fields).map(k=>String(r[k]??'').trim()));}
+function message(s){$("guestNotice").textContent=s;}
+function daysTo(date){if(!date)return null;const now=new Date();return Math.round((Date.parse(date+"T00:00:00Z")-Date.UTC(now.getFullYear(),now.getMonth(),now.getDate()))/86400000);}
+function status(r){const d=daysTo(r.expiry);return d===null?"":d<0?"expired":d<=30?"expiry":"";}
 function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
-function daysTo(date){if(!date)return null;const d=new Date(date+"T23:59:59");return Math.ceil((d-Date.now())/86400000);}
-function status(r){const d=daysTo(r.expiry);if(d!==null&&d<0)return "expired";if(d!==null&&d<=30)return "expiry";return "";}
 function unique(field){return [...new Set(data.map(r=>r[field]).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"ru"));}
 function populateFilters(){const lf=document.getElementById("locationFilter"),l=lf.value;lf.innerHTML='<option value="">Все</option>'+unique("location").map(x=>`<option>${esc(x)}</option>`).join("");lf.value=l;}
-function renderAuth(){const p=document.getElementById("authPanel"),admin=document.getElementById("adminPanel"),head=document.getElementById("actionsHead"),notice=document.getElementById("guestNotice");if(currentAdmin){p.innerHTML='<span>👤 Администратор</span><button class="btn-danger" id="logout">Выйти</button>';document.getElementById("logout").onclick=()=>{currentAdmin=false;sessionStorage.removeItem("adminAuthenticated");renderAll()};admin.style.display="block";head.style.display="table-cell";notice.style.display="none";}else{p.innerHTML='<input id="password" type="password" placeholder="Пароль администратора"><button id="login">Войти</button>';document.getElementById("login").onclick=login;document.getElementById("password").onkeydown=e=>{if(e.key==="Enter")login()};admin.style.display="none";head.style.display="none";notice.style.display="block";}}
-function login(){if(document.getElementById("password").value===ADMIN_KEY){currentAdmin=true;sessionStorage.setItem("adminAuthenticated","1");renderAll()}else alert("Неверный пароль.");}
 function renderStats(){document.getElementById("statTotal").textContent=data.length;document.getElementById("statLocations").textContent=unique("location").length;document.getElementById("statExpiry").textContent=data.filter(r=>status(r)==="expiry").length;document.getElementById("statExpired").textContent=data.filter(r=>status(r)==="expired").length;document.getElementById("statPurity").textContent=data.filter(r=>r.purity).length;}
 function getFiltered(){const q=document.getElementById("search").value.toLowerCase().trim(),loc=document.getElementById("locationFilter").value,st=document.getElementById("statusFilter").value;return data.filter(r=>{const hay=[r.name,r.formula,r.quantity,r.location,r.purity,r.expiry,r.received,r.note].join(" ").toLowerCase();return(!q||hay.includes(q))&&(!loc||r.location===loc)&&(!st||status(r)===st);});}
-function renderTable(){const rows=getFiltered(),tb=document.getElementById("tbody");if(!rows.length){tb.innerHTML='<tr><td colspan="9" class="empty">Ничего не найдено</td></tr>';return}tb.innerHTML=rows.map(r=>{const s=status(r),badge=s==="expired"?'<span class="badge danger">ПРОСРОЧЕН</span>':s==="expiry"?'<span class="badge warning">СРОК ≤30 ДН.</span>':'<span class="badge ok">в норме</span>';const actions=currentAdmin?`<td><div class="actions"><button onclick="editItem(${r.id})">Изменить</button><button class="btn-danger" onclick="deleteItem(${r.id})">Удалить</button></div></td>`:"";return `<tr><td><strong>${esc(r.name)}</strong></td><td>${esc(r.formula)}</td><td>${esc(r.quantity)}</td><td>${esc(r.location)}</td><td>${esc(r.purity)||"—"}</td><td>${r.expiry?esc(r.expiry):"—"}<br>${badge}</td><td>${r.received?esc(r.received):"—"}</td><td>${esc(r.note)||"—"}</td>${actions}</tr>`}).join("");}
-function renderSummary(){const box=document.getElementById("summary"),groups={};data.forEach(r=>{const l=r.location||"Не указано";(groups[l]??=[]).push(r)});box.innerHTML=Object.entries(groups).sort((a,b)=>a[0].localeCompare(b[0],"ru")).map(([loc,items])=>`<div class="summary-card"><strong>📍 ${esc(loc)} <span class="badge">${items.length} поз.</span></strong>${items.map(r=>`<div class="summary-row"><span>${esc(r.name)}</span><b>${esc(r.quantity)}</b></div>`).join("")}</div>`).join("")||'<div class="empty">Нет данных</div>';}
-function renderAll(){renderAuth();populateFilters();renderStats();renderTable();renderSummary();}
-function openModal(id=null){editingId=id;document.getElementById("modal").classList.add("open");document.getElementById("modalTitle").textContent=id?"Редактирование реактива":"Новый реактив";const r=id?data.find(x=>x.id===id):{name:"",formula:"",quantity:"",location:"",purity:"",expiry:"",received:"",note:""};const fields={Name:"name",Formula:"formula",Qty:"quantity",Loc:"location",Purity:"purity",Expiry:"expiry",Received:"received",Note:"note"};Object.entries(fields).forEach(([id,key])=>document.getElementById("f"+id).value=r[key]||"");}
+function renderTable(){const rows=getFiltered(),tb=document.getElementById("tbody");if(!rows.length){tb.innerHTML='<tr><td colspan="9" class="empty">Ничего не найдено</td></tr>';return}tb.innerHTML=rows.map(r=>{const s=status(r),badge=s==="expired"?'<span class="badge danger">ПРОСРОЧЕН</span>':s==="expiry"?'<span class="badge warning">СРОК ≤30 ДН.</span>':(r.expiry?'<span class="badge ok">в норме</span>':'<span class="badge">не указан</span>');const actions=currentAdmin?`<td><div class="actions"><button data-edit="${esc(r.id)}">Изменить</button>${role==='admin'?`<button class="btn-danger" data-delete="${esc(r.id)}">Удалить</button>`:""}</div></td>`:"";return `<tr><td><strong>${esc(r.name)}</strong></td><td>${esc(r.formula)}</td><td>${esc(r.quantity)}</td><td>${esc(r.location)}</td><td>${esc(r.purity)||"—"}</td><td>${r.expiry?esc(r.expiry):"—"}<br>${badge}</td><td>${r.received?esc(r.received):"—"}</td><td>${esc(r.note)||"—"}</td>${actions}</tr>`}).join("");}
+function renderSummary(){const box=document.getElementById("summary"),groups=Object.create(null);data.forEach(r=>{const l=r.location||"Не указано";(groups[l]??=[]).push(r)});box.innerHTML=Object.entries(groups).sort((a,b)=>a[0].localeCompare(b[0],"ru")).map(([loc,items])=>`<div class="summary-card"><strong>📍 ${esc(loc)} <span class="badge">${items.length} поз.</span></strong>${items.map(r=>`<div class="summary-row"><span>${esc(r.name)}</span><b>${esc(r.quantity)}</b></div>`).join("")}</div>`).join("")||'<div class="empty">Нет данных</div>';}
+function openModal(id=null){if(!currentAdmin||busy)return;editingId=id;document.getElementById("modal").classList.add("open");document.getElementById("modalTitle").textContent=id?"Редактирование реактива":"Новый реактив";const r=id?data.find(x=>x.id===id):{name:"",formula:"",quantity:"",location:"",purity:"",expiry:"",received:"",note:""};const fields={Name:"name",Formula:"formula",Qty:"quantity",Loc:"location",Purity:"purity",Expiry:"expiry",Received:"received",Note:"note"};Object.entries(fields).forEach(([id,key])=>document.getElementById("f"+id).value=r[key]||"");}
 function closeModal(){document.getElementById("modal").classList.remove("open");editingId=null;}
-document.getElementById("saveBtn").onclick=()=>{if(!currentAdmin)return;const r={name:f("Name"),formula:f("Formula"),quantity:f("Qty"),location:f("Loc"),purity:f("Purity"),expiry:f("Expiry"),received:f("Received"),note:f("Note")};if(!r.name||!r.formula||!r.quantity||!r.location){alert("Заполните обязательные поля: название, формула, количество и расположение.");return}if(editingId){Object.assign(data.find(x=>x.id===editingId),r)}else{data.push({id:data.length?Math.max(...data.map(x=>x.id))+1:1,...r})}closeModal();save();};
 function f(n){return document.getElementById("f"+n).value.trim()}
-window.editItem=id=>openModal(id);window.deleteItem=id=>{if(!currentAdmin)return;const r=data.find(x=>x.id===id);if(r&&confirm(`Удалить «${r.name}»?`)){data=data.filter(x=>x.id!==id);save()}};
-document.getElementById("addBtn").onclick=()=>openModal();document.getElementById("closeModal").onclick=closeModal;document.getElementById("cancelBtn").onclick=closeModal;document.getElementById("modal").onclick=e=>{if(e.target.id==="modal")closeModal()};["search","locationFilter","statusFilter"].forEach(id=>document.getElementById(id).addEventListener(id==="search"?"input":"change",renderTable));document.getElementById("resetBtn").onclick=()=>{document.getElementById("search").value="";document.getElementById("locationFilter").value="";document.getElementById("statusFilter").value="";renderTable()};
-document.getElementById("backupBtn").onclick=()=>{const blob=new Blob([JSON.stringify({version:3,exportedAt:new Date().toISOString(),data},null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="Реактивы_резервная_копия.json";a.click();URL.revokeObjectURL(a.href)};document.getElementById("importBtn").onclick=()=>document.getElementById("importFile").click();document.getElementById("importFile").onchange=e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=()=>{try{const x=JSON.parse(reader.result),arr=Array.isArray(x)?x:x.data;if(!Array.isArray(arr))throw Error();const clean=arr.map(normalize);if(!clean.every(r=>r.name&&r.formula&&r.quantity&&r.location))throw Error();if(confirm(`Импортировать ${clean.length} записей? Текущие данные будут заменены.`)){data=clean;save();alert("Импорт завершен.")}}catch(err){alert("Не удалось импортировать файл JSON. Проверьте структуру данных.")}e.target.value=""};reader.readAsText(file)};
-document.getElementById("exportBtn").onclick=()=>{if(!data.length)return alert("Нет данных для экспорта.");if(typeof XLSX==="undefined")return alert("Библиотека Excel недоступна. Проверьте подключение к интернету.");const rows=data.map(r=>({"Название":r.name,"Формула":r.formula,"Количество":r.quantity,"Расположение":r.location,"Чистота":r.purity,"Срок годности":r.expiry,"Дата поступления":r.received,"Примечание":r.note}));const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),"Реактивы");const stats=unique("location").map(l=>({"Расположение":l,"Позиций":data.filter(r=>r.location===l).length}));XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(stats),"Расположения");XLSX.writeFile(wb,"Реактивы_база.xlsx")};
-renderAll();
+function renderAll(){populateFilters();renderStats();renderTable();renderSummary();$("inventory").hidden=!ready;$("adminPanel").style.display=ready?"block":"none";$("addBtn").hidden=!currentAdmin;$("importBtn").hidden=role!=="admin";$("actionsHead").style.display=currentAdmin?"table-cell":"none";}
+function clearInventory(){epoch++;columnMap=null;data=[];ready=false;currentAdmin=false;role=null;page=1;closeModal();Object.keys(fields).forEach(k=>$("f"+k).value="");$("search").value="";$("statusFilter").value="";$("importFile").value="";renderAll();}
+function renderAuth(){
+ const p=$("authPanel");
+ if(recovery&&user){p.innerHTML='<form id="recoverForm"><label for="newPassword">Новый пароль (от 8 символов)</label><input id="newPassword" type="password" autocomplete="new-password" minlength="8" required aria-label="Новый пароль"><input id="repeatPassword" type="password" autocomplete="new-password" minlength="8" required aria-label="Повторите пароль" placeholder="Повторите пароль"><button>Сохранить пароль</button></form><button id="logout" class="btn-secondary">Выйти</button>';$("recoverForm").onsubmit=changePassword;$("logout").onclick=logout;return;}
+ if(user){p.innerHTML=`<span>${esc(user.email||"Пользователь")} · ${role==='admin'?'Администратор':role==='operator'?'Оператор':role==='viewer'?'Просмотр':'Доступ не назначен'}</span><button id="refresh" class="btn-secondary">Обновить</button><button id="logout" class="btn-danger">Выйти</button>`;$("logout").onclick=logout;$("refresh").onclick=()=>applySession({user});}
+ else {p.innerHTML='<form id="loginForm"><input id="username" type="email" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Email" aria-label="Email" required><input id="password" type="password" autocomplete="current-password" placeholder="Пароль" aria-label="Пароль" required><button id="login">Войти</button><button type="button" id="resetPassword" class="btn-secondary">Забыли пароль?</button></form>';$("loginForm").onsubmit=login;$("resetPassword").onclick=resetPassword;}
+}
+async function login(e){e.preventDefault();if(authBusy||!db)return;authBusy=true;$("login").disabled=true;try{const {error}=await db.auth.signInWithPassword({email:$("username").value.trim(),password:$("password").value});if(error)throw error;message("Вход выполнен. Проверяем доступ…");}catch(e){message("Не удалось войти. Проверьте email, пароль и подключение.");}finally{authBusy=false;if($("login"))$("login").disabled=false;if($("password"))$("password").value="";}}
+async function resetPassword(){if(authBusy||!db)return;const username=$("username");if(!username.reportValidity())return;if(!/^https?:$/.test(location.protocol)){message("Откройте сайт по HTTPS для восстановления пароля.");return;}authBusy=true;try{const {error}=await db.auth.resetPasswordForEmail(username.value.trim(),{redirectTo:location.origin+location.pathname});if(error)throw error;message("Если адрес зарегистрирован, на него придёт ссылка для смены пароля.");}catch(e){message("Не удалось отправить ссылку. Проверьте сеть и настройки Redirect URLs в Supabase.");}finally{authBusy=false;}}
+async function changePassword(e){e.preventDefault();if(authBusy)return;const password=$("newPassword").value;if(password.length<8||password!==$("repeatPassword").value){message("Пароли должны совпадать и содержать не менее 8 символов.");return;}authBusy=true;try{const {error}=await db.auth.updateUser({password});if(error)throw error;recovery=false;sessionStorage.removeItem("lab064_recovery");await logout();message("Пароль сохранён. Войдите с новым паролем.");}catch(e){message("Не удалось сохранить пароль. Запросите новую ссылку или проверьте требования к паролю.");}finally{authBusy=false;}}
+async function logout(){sessionStorage.removeItem("lab064_recovery");authSerial++;clearInventory();user=null;recovery=false;renderAuth();message("Выход…");if(!db)return;try{const {error}=await db.auth.signOut({scope:"local"});if(error)throw error;authSerial++;await applySession(null);}catch(e){message("Данные скрыты, но сервер не подтвердил выход. Повторите выход перед закрытием общего компьютера.");$("authPanel").innerHTML='<button id="retryLogout">Повторить выход</button>';$("retryLogout").onclick=logout;}}
+async function readAll(ticket){
+ const rows=[];let offset=0;
+ for(;;){if(ticket!==epoch)throw Error("SESSION_CHANGED");const {data:batch,error}=await db.from("lab064_reagents").select("id,"+Object.values(columnMap).join(",")).order("id",{ascending:true}).range(offset,offset+499);if(error)throw error;if(!batch.length)break;rows.push(...batch);offset+=batch.length;}
+ // Offset pagination can see concurrent edits; refreshing provides a new view.
+ if(rows.some(r=>typeof r.id==="number"&&!Number.isSafeInteger(r.id)))throw Error("ID превышает точность JavaScript. Нужен UUID или строковое представление ID в API.");
+ return [...new Map(rows.map(r=>[String(r.id),canonical(r)])).values()];
+}
+async function applySession(session){
+ clearInventory();user=session?.user||null;const ticket=epoch;renderAuth();
+ if(!user||user.is_anonymous){user=null;renderAuth();message('Войдите по email и паролю. База доступна только сотрудникам с назначенной ролью. Перед заменой старого сайта экспортируйте его локальную базу в JSON.');return;}
+ if(recovery){message('Установите новый пароль.');return;}
+ message('Проверяем доступ и загружаем реактивы…');
+ try{
+  const {data:profile,error}=await db.from('lab064_profiles').select('role').eq('user_id',user.id).maybeSingle();
+  if(ticket!==epoch)return;
+  if(error)throw error;
+  if(!profile||!['admin','operator','viewer'].includes(profile.role))throw Error('Роль не назначена. Обратитесь к администратору.');
+  const mapping=await detectColumns(ticket);if(ticket!==epoch)return;columnMap=mapping;
+  const rows=await readAll(ticket);if(ticket!==epoch)return;
+  data=rows;role=profile.role;currentAdmin=['admin','operator'].includes(role);ready=true;renderAuth();renderAll();message(`База загружена: ${data.length} поз. Изменения сохраняются в общей базе. Для получения изменений коллег нажмите «Обновить».`);
+ }catch(e){if(ticket!==epoch)return;clearInventory();renderAuth();message('База недоступна: '+(e.message||e.code||'проверьте сеть и права доступа'));}
+}
+function validateRecord(r){
+ if(!r||typeof r!=="object"||Array.isArray(r))throw Error("Запись должна быть объектом.");const result={};
+ for(const key of Object.values(fields)){let v=r[key];if(v==null&&key==="received")v=r.dateReceived??r.received_date??r.date_received;if(v==null&&key==="expiry")v=r.expiry_date??r.expiration_date;if(v==null&&key==="quantity")v=r.qty;if(v==null&&key==="location")v=r.storage_location;if(v==null&&key==="note")v=r.notes;if(v==null)v="";if(typeof v!=="string")throw Error(`Поле ${key} должно быть строкой.`);v=v.trim();if(v.length>(key==="note"?4000:500))throw Error(`Поле ${key} слишком длинное.`);if(["name","formula","quantity","location"].includes(key)&&!v)throw Error(`Не заполнено поле ${key}.`);if(["expiry","received"].includes(key)){if(v&&(!/^\d{4}-\d{2}-\d{2}$/.test(v)||!Number.isFinite(Date.parse(v+"T00:00:00Z"))||new Date(v+"T00:00:00Z").toISOString().slice(0,10)!==v))throw Error(`Некорректная дата: ${key}.`);v=v||null;}result[key]=v;}
+ return result;
+}
+async function writeOperation(action){if(busy||!currentAdmin||!ready)return;busy=true;$("saveBtn").disabled=true;const ticket=epoch;try{await action(ticket);if(ticket===epoch){closeModal();await applySession({user});}}catch(e){if(ticket===epoch)message("Операция не подтверждена: "+(e.message||"проверьте доступ и сеть")+". Перед повтором обновите базу.");}finally{busy=false;$("saveBtn").disabled=false;}}
+$("saveBtn").onclick=()=>writeOperation(async()=>{const record=validateRecord(Object.fromEntries(Object.entries(fields).map(([k,v])=>[v,f(k)])));let query;if(editingId!==null){const original=data.find(r=>r.id===editingId);query=withOriginal(db.from("lab064_reagents").update(toDatabase(record)).eq("id",editingId),original);}else query=db.from("lab064_reagents").insert(toDatabase(record));const {data:changed,error}=await query.select("id");if(error)throw error;if(changed.length!==1)throw Error("Запись изменена другим пользователем или доступ отозван. Обновите базу");});
+async function deleteItem(id){const record=data.find(r=>r.id===id);if(role!=="admin"||!record||!confirm(`Удалить «${record.name}»?`))return;await writeOperation(async()=>{const {data:changed,error}=await withOriginal(db.from("lab064_reagents").delete().eq("id",id),record).select("id");if(error)throw error;if(changed.length!==1)throw Error("Запись уже изменена или доступ отозван");});}
+$("tbody").onclick=e=>{const button=e.target.closest("button");if(!button||busy)return;if(button.dataset.edit)openModal(button.dataset.edit);if(button.dataset.delete)deleteItem(button.dataset.delete);};
+$("addBtn").onclick=()=>openModal();$("closeModal").onclick=closeModal;$("cancelBtn").onclick=closeModal;$("modal").onclick=e=>{if(e.target.id==="modal"&&!busy)closeModal();};document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!busy)closeModal();});
+["search","locationFilter","statusFilter"].forEach(id=>$(id).addEventListener(id==="search"?"input":"change",()=>{page=1;renderTable();}));
+$("resetBtn").onclick=()=>{$("search").value="";$("locationFilter").value="";$("statusFilter").value="";page=1;renderTable();};
+
+function downloadJSON(rows){const url=URL.createObjectURL(new Blob([JSON.stringify({version:4,source:"laboratory064",exportedAt:new Date().toISOString(),data:rows.map(r=>Object.fromEntries(["id",...Object.values(fields)].map(k=>[k,r[k]])))},null,2)],{type:"application/json"}));const a=document.createElement("a");a.href=url;a.download="laboratory064_backup_"+new Date().toISOString().replace(/[:.]/g,"-")+".json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+$("backupBtn").onclick=()=>{if(ready)downloadJSON(data);};
+$("importBtn").onclick=()=>{if(role==="admin"&&!busy)$("importFile").click();};
+$("importFile").onchange=async e=>{const file=e.target.files[0];e.target.value="";if(!file||role!=="admin"||busy)return;const ticket=epoch;try{if(file.size>5*1024*1024)throw Error("Максимальный размер файла — 5 МБ");const parsed=JSON.parse(await file.text());if(ticket!==epoch)return;const rows=Array.isArray(parsed)?parsed:parsed?.data;if(!Array.isArray(rows)||rows.length>5000)throw Error("Нужен массив записей или объект с data; максимум 5000 записей");const clean=rows.map((r,i)=>{try{return validateRecord(r);}catch(e){throw Error(`Строка ${i+1}: ${e.message}`);}});if(!clean.length)throw Error("Файл пуст");if(!confirm(`Проверено ${clean.length} записей. Добавить новые? Полные совпадения будут пропущены. Существующие записи НЕ изменяются и НЕ удаляются. Перед импортом будет скачана текущая резервная копия.`))return;await writeOperation(async active=>{const snapshot=await readAll(active);if(active!==epoch)return;downloadJSON(snapshot);const seen=new Set(snapshot.map(fingerprint)),pending=[];
+for(const record of clean){const key=fingerprint(record);if(!seen.has(key)){seen.add(key);pending.push(record);}}
+if(active!==epoch||role!=="admin")return;
+if(pending.length){const {data:inserted,error}=await db.from("lab064_reagents").insert(pending.map(toDatabase)).select("id");if(error)throw error;if(inserted.length!==pending.length)throw Error("Количество добавленных записей не подтверждено");}
+if(active===epoch)alert(`Импорт завершён: добавлено ${pending.length}, пропущено ${clean.length-pending.length}.`);});}catch(e){if(ticket===epoch)message("Импорт отклонён: "+e.message);}};
+$("exportBtn").onclick=()=>{if(!ready||!data.length)return;if(!window.XLSX){message("Библиотека Excel недоступна. Проверьте подключение.");return;}const labels=["Название","Формула","Количество","Расположение","Чистота","Срок годности","Дата поступления","Примечание"];const rows=data.map(r=>Object.values(fields).map(k=>String(r[k]??"")));const wb=XLSX.utils.book_new();const sheet=XLSX.utils.aoa_to_sheet([labels,...rows]);/* All inventory values are strings, never spreadsheet formulas. */XLSX.utils.book_append_sheet(wb,sheet,"Реактивы");XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([["Расположение","Позиций"],...unique("location").map(l=>[l,data.filter(r=>r.location===l).length])]),"Расположения");XLSX.writeFile(wb,"Реактивы_база.xlsx");};
+try{recovery=sessionStorage.getItem("lab064_recovery")==="1";}catch{}
+renderAuth();renderAll();
+try{
+ if(!window.supabase)throw Error("Библиотека Supabase не загрузилась. Проверьте подключение и перезагрузите страницу.");
+ // Only the Auth session is stored, in this tab. Inventory never goes into browser storage.
+ db=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY,{auth:{storage:sessionStorage,persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+ db.auth.onAuthStateChange((event,session)=>{
+  if(event==="PASSWORD_RECOVERY"){recovery=true;try{sessionStorage.setItem("lab064_recovery","1");}catch{}}
+  if(event==="SIGNED_OUT"){authSerial++;user=null;recovery=false;clearInventory();renderAuth();const serial=authSerial;setTimeout(()=>{if(serial===authSerial)applySession(null);},0);return;}
+  if(["INITIAL_SESSION","SIGNED_IN","PASSWORD_RECOVERY"].includes(event)){
+   if(event==="SIGNED_IN"&&ready&&user?.id===session?.user?.id)return;
+   const serial=++authSerial;if(user?.id!==session?.user?.id)clearInventory();
+   setTimeout(()=>{if(serial===authSerial)applySession(session);},0);
+  }
+ });
+}catch(e){message(e.message);$("login").disabled=true;}
+
+
 </script>
 </body>
 </html>
