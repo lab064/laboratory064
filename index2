@@ -218,9 +218,9 @@ button{touch-action:manipulation}
 <script>
 "use strict";
 const SUPABASE_URL =
-  "https://lab064.supabase.co";
+  "https://spiyxmnpnubhrqyfdvsh.supabase.co";
 const SUPABASE_KEY =
-  "sb_publishable_FUVmWmCFvrBQRW_Euhk47g_sj3f9HYl";
+  "sb_publishable_23wKsAdVxbC2XN2AoluytA_v27RQWYM";
 const db = window.supabase.createClient(
   SUPABASE_URL,
   SUPABASE_KEY);
