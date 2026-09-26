@@ -216,7 +216,15 @@ button{touch-action:manipulation}
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-"use strict";
+"use strict";  
+const SUPABASE_URL =
+  "https://laboratory064.supabase.co";
+const SUPABASE_KEY =
+  "sb_publishable_sb_publishable_23wKsAdVxbC2XN2AoluytA_v27RQWYM";
+const db = window.supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_KEY
+);
 const ADMIN_KEY="admin555";
 const STORAGE_KEY="chemical_reagents_v3";
 const DEFAULT=[
