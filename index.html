@@ -131,6 +131,8 @@ button,input,select{min-height:40px}
 button{touch-action:manipulation}
 
 [hidden]{display:none!important}.auth{flex-wrap:wrap;max-width:540px}.auth form{display:flex;flex-wrap:wrap;gap:8px;width:100%}.auth input{min-width:120px;max-width:100%;font-size:16px}.auth label{color:white;width:100%}.auth span{overflow-wrap:anywhere}button:disabled{opacity:.55;cursor:wait}
+.pagination{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;margin-top:14px}.pagination #pageInfo{text-align:center}.pagination button:disabled{cursor:default}
+@media(max-width:650px){.pagination{gap:8px}.pagination #pageInfo{order:-1;width:100%}.pagination button{flex:1;min-height:44px}}
 </style>
 </head>
 <body>
@@ -192,6 +194,11 @@ button{touch-action:manipulation}
 <tbody id="tbody"></tbody>
 </table>
 </div>
+<nav class="pagination" aria-label="Страницы списка реактивов">
+  <button type="button" id="prevPage" class="btn-secondary" aria-controls="tbody">← Назад</button>
+  <span id="pageInfo" class="muted" role="status" aria-live="polite" aria-atomic="true"></span>
+  <button type="button" id="nextPage" class="btn-secondary" aria-controls="tbody">Далее →</button>
+</nav>
 </section>
 
 <section class="card">
@@ -230,6 +237,7 @@ function resolveLoginEmail(value){
 const $=id=>document.getElementById(id);
 const fields={Name:"name",Formula:"formula",Qty:"quantity",Loc:"location",Purity:"purity",Expiry:"expiry",Received:"received",Note:"note"};
 let db=null,data=[],editingId=null,currentAdmin=false,user=null,role=null,busy=false,ready=false,page=1,epoch=0,recovery=false,authBusy=false,authSerial=0;
+const PAGE_SIZE=20;
 let columnMap=null;
 const aliases={name:['name'],formula:['formula'],quantity:['quantity','qty'],location:['location','storage_location'],purity:['purity'],expiry:['expiry','expiry_date','expiration_date'],received:['received','received_date','date_received','dateReceived'],note:['note','notes']};
 async function detectColumns(ticket){
@@ -257,7 +265,14 @@ function unique(field){return [...new Set(data.map(r=>r[field]).filter(Boolean))
 function populateFilters(){const lf=document.getElementById("locationFilter"),l=lf.value;lf.innerHTML='<option value="">Все</option>'+unique("location").map(x=>`<option>${esc(x)}</option>`).join("");lf.value=l;}
 function renderStats(){document.getElementById("statTotal").textContent=data.length;document.getElementById("statLocations").textContent=unique("location").length;document.getElementById("statExpiry").textContent=data.filter(r=>status(r)==="expiry").length;document.getElementById("statExpired").textContent=data.filter(r=>status(r)==="expired").length;document.getElementById("statPurity").textContent=data.filter(r=>r.purity).length;}
 function getFiltered(){const q=document.getElementById("search").value.toLowerCase().trim(),loc=document.getElementById("locationFilter").value,st=document.getElementById("statusFilter").value;return data.filter(r=>{const hay=[r.name,r.formula,r.quantity,r.location,r.purity,r.expiry,r.received,r.note].join(" ").toLowerCase();return(!q||hay.includes(q))&&(!loc||r.location===loc)&&(!st||status(r)===st);});}
-function renderTable(){const rows=getFiltered(),tb=document.getElementById("tbody");if(!rows.length){tb.innerHTML='<tr><td colspan="9" class="empty">Ничего не найдено</td></tr>';return}tb.innerHTML=rows.map(r=>{const s=status(r),badge=s==="expired"?'<span class="badge danger">ПРОСРОЧЕН</span>':s==="expiry"?'<span class="badge warning">СРОК ≤30 ДН.</span>':(r.expiry?'<span class="badge ok">в норме</span>':'<span class="badge">не указан</span>');const actions=currentAdmin?`<td><div class="actions"><button data-edit="${esc(r.id)}">Изменить</button>${role==='admin'?`<button class="btn-danger" data-delete="${esc(r.id)}">Удалить</button>`:""}</div></td>`:"";return `<tr><td><strong>${esc(r.name)}</strong></td><td>${esc(r.formula)}</td><td>${esc(r.quantity)}</td><td>${esc(r.location)}</td><td>${esc(r.purity)||"—"}</td><td>${r.expiry?esc(r.expiry):"—"}<br>${badge}</td><td>${r.received?esc(r.received):"—"}</td><td>${esc(r.note)||"—"}</td>${actions}</tr>`}).join("");}
+function renderTable(){
+const filtered=getFiltered(),total=filtered.length,totalPages=Math.max(1,Math.ceil(total/PAGE_SIZE));
+page=Math.min(Math.max(1,page),totalPages);
+const start=(page-1)*PAGE_SIZE,rows=filtered.slice(start,start+PAGE_SIZE),tb=document.getElementById("tbody");
+$("prevPage").disabled=page===1;
+$("nextPage").disabled=page===totalPages;
+$("pageInfo").textContent=total?`Страница ${page} из ${totalPages} · Записи ${start+1}–${Math.min(start+PAGE_SIZE,total)} из ${total}`:"Записей не найдено";
+if(!rows.length){tb.innerHTML='<tr><td colspan="9" class="empty">Ничего не найдено</td></tr>';return}tb.innerHTML=rows.map(r=>{const s=status(r),badge=s==="expired"?'<span class="badge danger">ПРОСРОЧЕН</span>':s==="expiry"?'<span class="badge warning">СРОК ≤30 ДН.</span>':(r.expiry?'<span class="badge ok">в норме</span>':'<span class="badge">не указан</span>');const actions=currentAdmin?`<td><div class="actions"><button data-edit="${esc(r.id)}">Изменить</button>${role==='admin'?`<button class="btn-danger" data-delete="${esc(r.id)}">Удалить</button>`:""}</div></td>`:"";return `<tr><td><strong>${esc(r.name)}</strong></td><td>${esc(r.formula)}</td><td>${esc(r.quantity)}</td><td>${esc(r.location)}</td><td>${esc(r.purity)||"—"}</td><td>${r.expiry?esc(r.expiry):"—"}<br>${badge}</td><td>${r.received?esc(r.received):"—"}</td><td>${esc(r.note)||"—"}</td>${actions}</tr>`}).join("");}
 function renderSummary(){const box=document.getElementById("summary"),groups=Object.create(null);data.forEach(r=>{const l=r.location||"Не указано";(groups[l]??=[]).push(r)});box.innerHTML=Object.entries(groups).sort((a,b)=>a[0].localeCompare(b[0],"ru")).map(([loc,items])=>`<div class="summary-card"><strong>📍 ${esc(loc)} <span class="badge">${items.length} поз.</span></strong>${items.map(r=>`<div class="summary-row"><span>${esc(r.name)}</span><b>${esc(r.quantity)}</b></div>`).join("")}</div>`).join("")||'<div class="empty">Нет данных</div>';}
 function openModal(id=null){if(!currentAdmin||busy)return;editingId=id;document.getElementById("modal").classList.add("open");document.getElementById("modalTitle").textContent=id?"Редактирование реактива":"Новый реактив";const r=id?data.find(x=>x.id===id):{name:"",formula:"",quantity:"",location:"",purity:"",expiry:"",received:"",note:""};const fields={Name:"name",Formula:"formula",Qty:"quantity",Loc:"location",Purity:"purity",Expiry:"expiry",Received:"received",Note:"note"};Object.entries(fields).forEach(([id,key])=>document.getElementById("f"+id).value=r[key]||"");}
 function closeModal(){document.getElementById("modal").classList.remove("open");editingId=null;}
@@ -308,6 +323,16 @@ $("tbody").onclick=e=>{const button=e.target.closest("button");if(!button||busy)
 $("addBtn").onclick=()=>openModal();$("closeModal").onclick=closeModal;$("cancelBtn").onclick=closeModal;$("modal").onclick=e=>{if(e.target.id==="modal"&&!busy)closeModal();};document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!busy)closeModal();});
 ["search","locationFilter","statusFilter"].forEach(id=>$(id).addEventListener(id==="search"?"input":"change",()=>{page=1;renderTable();}));
 $("resetBtn").onclick=()=>{$("search").value="";$("locationFilter").value="";$("statusFilter").value="";page=1;renderTable();};
+
+function changePage(step){
+ const totalPages=Math.max(1,Math.ceil(getFiltered().length/PAGE_SIZE));
+ const next=Math.min(Math.max(1,page+step),totalPages);
+ if(next===page)return;
+ page=next;renderTable();
+ document.querySelector(".table-wrap").scrollIntoView({block:"start",behavior:"auto"});
+}
+$("prevPage").onclick=()=>changePage(-1);
+$("nextPage").onclick=()=>changePage(1);
 
 function downloadJSON(rows){const url=URL.createObjectURL(new Blob([JSON.stringify({version:4,source:"laboratory064",exportedAt:new Date().toISOString(),data:rows.map(r=>Object.fromEntries(["id",...Object.values(fields)].map(k=>[k,r[k]])))},null,2)],{type:"application/json"}));const a=document.createElement("a");a.href=url;a.download="laboratory064_backup_"+new Date().toISOString().replace(/[:.]/g,"-")+".json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 $("backupBtn").onclick=()=>{if(ready)downloadJSON(data);};
