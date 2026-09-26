@@ -223,24 +223,7 @@ const SUPABASE_KEY =
   "sb_publishable_FUVmWmCFvrBQRW_Euhk47g_sj3f9HYl";
 const db = window.supabase.createClient(
   SUPABASE_URL,
-  SUPABASE_KEY
-);
-  
-async function testConnection() {
-    const { data, error } = await db
-        .from("lab064_reagents")
-        .select("id, name")
-        .limit(1);
-
-    if (error) {
-        console.error("Ошибка Supabase:", error);
-    } else {
-        console.log("Соединение с Supabase работает:", data);
-    }
-}
-
-testConnection();
-
+  SUPABASE_KEY);
 const ADMIN_KEY="admin555";
 const STORAGE_KEY="chemical_reagents_v3";
 const DEFAULT=[
