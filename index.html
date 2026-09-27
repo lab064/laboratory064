@@ -299,7 +299,7 @@ async function readAll(ticket){
 }
 async function applySession(session){
  clearInventory();user=session?.user||null;const ticket=epoch;renderAuth();
- if(!user||user.is_anonymous){user=null;renderAuth();message('Вход по email и паролю. База доступна только сотрудникам лаборатории.');return;}
+ if(!user||user.is_anonymous){user=null;renderAuth();message('Вход по логину и паролю. Список реактивов доступен для сотрудников лаборатории.');return;}
  if(recovery){message('Установите новый пароль.');return;}
  message('Проверяем доступ и загружаем реактивы…');
  try{
