@@ -309,7 +309,7 @@ async function applySession(session){
   if(!profile||!['admin','operator','viewer'].includes(profile.role))throw Error('Роль не назначена. Обратитесь к администратору.');
   const mapping=await detectColumns(ticket);if(ticket!==epoch)return;columnMap=mapping;
   const rows=await readAll(ticket);if(ticket!==epoch)return;
-  data=rows;role=profile.role;currentAdmin=['admin','operator'].includes(role);ready=true;renderAuth();renderAll();message(`База загружена: ${data.length} поз. Изменения сохраняются в общей базе. Для получения изменений коллег нажмите «Обновить».`);
+  data=rows;role=profile.role;currentAdmin=['admin','operator'].includes(role);ready=true;renderAuth();renderAll();message(`База загружена: ${data.length} поз. Для сохранения изменений нажмите «Обновить».`);
  }catch(e){if(ticket!==epoch)return;clearInventory();renderAuth();message('База недоступна: '+(e.message||e.code||'проверьте сеть и права доступа'));}
 }
 function validateRecord(r){
